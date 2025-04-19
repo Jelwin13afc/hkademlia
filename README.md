@@ -4,8 +4,10 @@ This repository contains the core implementation files for the Hierarchical Kade
 ## Files
 
 - `HKademliaProtocol.java`: Main protocol class implementing H-Kademlia logic
-- `HKademliaInitializer.java`: Assigns cluster IDs and initializes KBuckets
-- `HKademliaStoreSimulator.java`: Simulates STORE/LOOKUP actions for evaluation
+- `HNodeInitializer.java`: Assigns cluster IDs and initializes KBuckets
+- `HStoreLookupControl.java`: Simulates STORE/LOOKUP actions for evaluation
+- `HClusterManager.java`: Handles cluster grouping and intra/inter logic
+- `MetricsRecorder.java`: Collects and outputs experiment stats
 
 ## Installation
 
