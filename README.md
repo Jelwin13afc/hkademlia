@@ -24,3 +24,4 @@ peersim-1.0.5/
 ├── config-hkademlia.txt          
 ├── README.md
 
+java -cp "peersim-1.0.5.jar:jep-2.3.0.jar:djep-1.0.0.jar" peersim.Simulator example/config-example1.txt
