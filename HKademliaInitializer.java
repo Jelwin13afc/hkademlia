@@ -3,8 +3,12 @@
 // Optionally assigns peer IDs, populates lookup indices, etc.
 
 import peersim.core.*;
+
+import java.io.ObjectInputFilter.Config;
+
 import peersim.config.*;
 import peersim.edsim.*;
+
 
 public class HKademliaInitializer implements Control {
 
