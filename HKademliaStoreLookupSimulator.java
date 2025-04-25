@@ -41,13 +41,13 @@ public class HKademliaStoreLookupSimulator implements Control {
 
             // Store operation
             if (operationType.equals("storelookup") || operationType.equals("store")) {
-                protocol.initiateStore(contentID, kadK);
+                protocol.executeStore(Long.parseLong(contentID, 16));
                 totalStoreRequests++;
             }
 
             // Lookup operation
             if (operationType.equals("storelookup") || operationType.equals("lookup")) {
-                LookupResult result = protocol.initiateLookup(contentID, kadA);
+                LookupResult result = protocol.executeLookup(Long.parseLong(contentID, 16));
                 totalLookupRequests++;
 
                 if (result.success) {

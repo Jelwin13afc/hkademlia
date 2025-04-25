@@ -11,18 +11,28 @@ public class HKademliaInitializer implements Control {
     private final String protocol;
 
     public HKademliaInitializer(String prefix) {
-        this.protocol = prefix + ".protocol";
+        this.protocol = Configuration.getString(prefix + ".protocol");
     }
 
     public boolean execute() {
-        int pid = Config.getPid(protocol);
-        int numClusters = Config.getInt("hkademlia.clusters", 5);
+        int pid = Configuration.lookupPid(protocol);
+        int numClusters = Configuration.getInt("protocol." + protocol + ".clusters", 5);
 
         for (int i = 0; i < Network.size(); i++) {
             Node node = Network.get(i);
             HKademliaProtocol prot = (HKademliaProtocol) node.getProtocol(pid);
             prot.setClusterId(i % numClusters);
-            // Optionally, pre-fill KBuckets here
+        }
+        // Fill KBuckets for each peer
+        for (int i = 0; i < Network.size(); i++) {
+            Node node = Network.get(i);
+            HKademliaProtocol protocol = (HKademliaProtocol) node.getProtocol(pid);
+            for (int j = 0; j < Network.size(); j++) {
+                if (i != j) {
+                    Node candidate = Network.get(j);
+                    protocol.addPeer(node, candidate);
+                }
+            }
         }
         return false;
     }
