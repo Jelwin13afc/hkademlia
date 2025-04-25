@@ -9,21 +9,26 @@ public class HKademliaProtocol implements Protocol {
     private int clusterID;
     private Set<Node> kbucket;
 
+    private final String prefix;
+
     public HKademliaProtocol(String prefix) {
-        this.kadK = Configuration.getInt(prefix + ".kadK", 2);
-        this.kadA = Configuration.getInt(prefix + ".kadA", 1);
+        this.prefix = prefix;
+        this.kadK = Configuration.getInt(prefix + ".kadK");
+        this.kadA = Configuration.getInt(prefix + ".kadA");
         this.kbucket = new HashSet<>();
     }
 
     // The clone() method ensures that each peer gets a new instance of your protocol class
     public Object clone(){
-        return new HKademliaProtocol("hkademlia");
+        return new HKademliaProtocol(prefix);
     }
 
     public void addPeer(Node selfNode, Node peer) {
         // Apply H-Kademlia KBucket insertion rules
         // get the protocol
-        HKademliaProtocol peerProtocol = (HKademliaProtocol) peer.getProtocol(Configuration.getPid("hkademlia"));
+        String protocolId = prefix.substring(prefix.lastIndexOf('.') + 1);  // Extract "hkademlia"
+        int pid = Configuration.lookupPid(protocolId);
+        HKademliaProtocol peerProtocol = (HKademliaProtocol) peer.getProtocol(pid);
         // get the cluster Id
         int peerClusterId = peerProtocol.getClusterId();
 
@@ -36,7 +41,7 @@ public class HKademliaProtocol implements Protocol {
 
             // Remove any remote peers that are farther from the new peer than this node is
             kbucket.removeIf(other -> {
-                HKademliaProtocol otherProtocol = (HKademliaProtocol) other.getProtocol(Configuration.getPid("hkademlia"));
+                HKademliaProtocol otherProtocol = (HKademliaProtocol) other.getProtocol(pid);
                 boolean isRemote = otherProtocol.getClusterId() != this.clusterID;
                 long otherDistance = xorDistance(other.getID(), peerId);
                 long selfDistance = xorDistance(selfId, peerId);
@@ -44,7 +49,7 @@ public class HKademliaProtocol implements Protocol {
             });
         }
         else{
-            Node closestInCluster = getClosestPeerInCluster(peer.getID());
+            Node closestInCluster = getClosestPeerInCluster(peer.getID(), pid);
             if (closestInCluster != null && closestInCluster.getID() == selfNode.getID()) {
                 // Become gateway peer
                 kbucket.add(peer);
@@ -68,6 +73,7 @@ public class HKademliaProtocol implements Protocol {
 
     public HKademliaStoreLookupSimulator.LookupResult executeLookup(long contentId) {
         // Simulate LOOKUP action based on contentId
+
         return new HKademliaStoreLookupSimulator.LookupResult(success, hops, latency);
     }
 
@@ -83,12 +89,12 @@ public class HKademliaProtocol implements Protocol {
         return id1 ^ id2;
     }
 
-    private Node getClosestPeerInCluster(long targetId) {
+    private Node getClosestPeerInCluster(long targetId, int pid) {
         Node closest = null;
         long minDistance = Long.MAX_VALUE;
         for (int i = 0; i < Network.size(); i++) {
             Node node = Network.get(i);
-            HKademliaProtocol proto = (HKademliaProtocol) node.getProtocol(Configuration.getPid("hkademlia"));
+            HKademliaProtocol proto = (HKademliaProtocol) node.getProtocol(pid);
             if (proto.getClusterId() == this.clusterID) {
                 long distance = xorDistance(node.getID(), targetId);
                 if (distance < minDistance) {

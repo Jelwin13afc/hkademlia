@@ -11,12 +11,12 @@ public class HKademliaInitializer implements Control {
     private final String protocol;
 
     public HKademliaInitializer(String prefix) {
-        this.protocol = prefix + ".protocol";
+        this.protocol = Configuration.getString(prefix + ".protocol");
     }
 
     public boolean execute() {
-        int pid = Configuration.getPid(protocol);
-        int numClusters = Configuration.getInt("hkademlia.clusters", 5);
+        int pid = Configuration.lookupPid(protocol);
+        int numClusters = Configuration.getInt("protocol." + protocol + ".clusters", 5);
 
         for (int i = 0; i < Network.size(); i++) {
             Node node = Network.get(i);
