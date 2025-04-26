@@ -11,11 +11,36 @@ public class HKademliaProtocol implements Protocol {
 
     private final String prefix;
 
+    private int cacheSize;
+    private int cacheHits = 0;
+    private int cacheMisses = 0;
+
+    private static final int DEFAULT_CACHE_SIZE = 500;
+    private static final String PAR_CACHE_SIZE = "cache_size";
+
+    private LinkedHashMap<String, Object> contentCache;
+
+    // Map to track content to its originating cluster
+    private Map<String, Integer> contentOriginCluster;
+
     public HKademliaProtocol(String prefix) {
         this.prefix = prefix;
         this.kadK = Configuration.getInt(prefix + ".kadK");
         this.kadA = Configuration.getInt(prefix + ".kadA");
         this.kbucket = new HashSet<>();
+
+        this.cacheSize = Configuration.getInt(prefix + "." + PAR_CACHE_SIZE, DEFAULT_CACHE_SIZE);
+
+        // FIFO strategy for cache
+        this.contentCache = new LinkedHashMap<String, Object>(cacheSize, 0.75f, false) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, Object> eldest) {
+                return size() > cacheSize;
+            }
+        };
+
+        // Track which cluster each content originated from
+        this.contentOriginCluster = new HashMap<>();
     }
 
     // The clone() method ensures that each peer gets a new instance of your protocol class
@@ -63,8 +88,17 @@ public class HKademliaProtocol implements Protocol {
 
     public void executeStore(long contentId) {
         // Simulate STORE action based on contentId and protocol
+        
+        
+        String contentIdStr = String.valueOf(contentId);
+        Object content = "Content-" + contentIdStr;
+
         // find kadk number of closest peers,contenID to store 
         List<Node> closestPeers = findClosestPeers(contentId, kadK);
+
+        // Store content in local cache first
+        storeInCache(contentIdStr, content);
+
         for (Node peer : closestPeers) {
             // Simulate storing content on that peer (abstract logic)
             System.out.println("Storing content " + contentId + " on peer " + peer.getID());
@@ -74,7 +108,17 @@ public class HKademliaProtocol implements Protocol {
     public HKademliaStoreLookupSimulator.LookupResult executeLookup(long contentId) {
         // Simulate LOOKUP action based on contentId
 
-        return new HKademliaStoreLookupSimulator.LookupResult(success, hops, latency);
+        // first check local cache
+        String contentIdStr = String.valueOf(contentId);
+        Object cachedContent = searchCache(contentIdStr);
+        if (cachedContent != null) {
+            // Cache hit - return result immediately with 0 hops
+            System.out.println("Cache hit for content " + contentId);
+            return new HKademliaStoreLookupSimulator.LookupResult(true, 0, 0);
+        }
+
+        // return new HKademliaStoreLookupSimulator.LookupResult(success, hops, latency);
+        return null;
     }
 
     public void setClusterId(int id) {
@@ -114,6 +158,59 @@ public class HKademliaProtocol implements Protocol {
             result.add(pq.poll());
         }
         return result;
+    }
+
+    // Register which cluster a content originated from
+    public void registerContentOrigin(String contentId, int clusterId) {
+        contentOriginCluster.put(contentId, clusterId);
+    }
+
+    // Get the origin cluster of a content
+    public Integer getContentOriginCluster(String contentId) {
+        return contentOriginCluster.get(contentId);
+    }
+
+    // store content in cache
+    public void storeInCache(String contentId, Object content){
+        contentCache.put(contentId, content);
+    }
+
+    // Search for content in local cache
+    public Object searchCache(String contentId) {
+        Object result = contentCache.get(contentId);
+        
+        // Update stats (optional)
+        if (result != null) {
+            cacheHits++;
+        } else {
+            cacheMisses++;
+        }
+        
+        return result;
+    }
+
+    //Check if content exists in cache
+    public boolean isCached(String contentId) {
+        return contentCache.containsKey(contentId);
+    }
+
+    /**
+     * Clear the entire cache
+     */
+    public void clearCache() {
+        contentCache.clear();
+    }
+
+    /**
+     * Get cache statistics
+     * @return String representation of cache stats
+     */
+    public String getCacheStats() {
+        int totalRequests = cacheHits + cacheMisses;
+        double hitRatio = totalRequests > 0 ? (double)cacheHits / totalRequests : 0;
+        
+        return String.format("Cache size: %d/%d, Hits: %d, Misses: %d, Hit ratio: %.2f%%", 
+                contentCache.size(), cacheSize, cacheHits, cacheMisses, hitRatio * 100);
     }
 
 }
