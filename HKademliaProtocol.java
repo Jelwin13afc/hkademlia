@@ -11,6 +11,8 @@ public class HKademliaProtocol implements Protocol {
 
     private final String prefix;
 
+    private final Set<Long> localStore = new HashSet<>();
+
     private int cacheSize;
     private int cacheHits = 0;
     private int cacheMisses = 0;
@@ -91,6 +93,7 @@ public class HKademliaProtocol implements Protocol {
         
         
         String contentIdStr = String.valueOf(contentId);
+        localStore.add(contentId); // Storing in this node as well, may be optional
         Object content = "Content-" + contentIdStr;
 
         // find kadk number of closest peers,contenID to store 
@@ -99,7 +102,11 @@ public class HKademliaProtocol implements Protocol {
         // Store content in local cache first
         storeInCache(contentIdStr, content);
 
+        String protocolId = prefix.substring(prefix.lastIndexOf('.')+1);
+        int pid = Configuration.lookupPid(protocolId);
         for (Node peer : closestPeers) {
+            HKademliaProtocol peerProtocol = (HKademliaProtocol) peer.getProtocol(pid);
+            peerProtocol.localStore.add(contentId);
             // Simulate storing content on that peer (abstract logic)
             System.out.println("Storing content " + contentId + " on peer " + peer.getID());
         }
@@ -113,12 +120,66 @@ public class HKademliaProtocol implements Protocol {
         Object cachedContent = searchCache(contentIdStr);
         if (cachedContent != null) {
             // Cache hit - return result immediately with 0 hops
+            cacheHits++;
             System.out.println("Cache hit for content " + contentId);
             return new HKademliaStoreLookupSimulator.LookupResult(true, 0, 0);
         }
+        // Not in local cache
+        cacheMisses++;
+        // Next check local store
+        if (localStore.contains(contentId)) {
+            return new HKademliaStoreLookupSimulator.LookupResult(true, 0, 0);
+        }
+        // Nodes that we've already contacted
+        Set<Node> contacted = new HashSet<>();
+        // Custom priority queue based on shortest distances
+        PriorityQueue<Node> shortestDistances = new PriorityQueue<>(
+                Comparator.comparingLong(n -> xorDistance(n.getID(), contentId))
+        );
+        // Find kadA closest peers
+        shortestDistances.addAll(findClosestPeers(contentId, kadA));
+        int hops = 0;
+        long latency = 0;
+        boolean success = false;
+        String protocolId = prefix.substring(prefix.lastIndexOf('.')+1);
+        int pid = Configuration.lookupPid(protocolId);
 
-        // return new HKademliaStoreLookupSimulator.LookupResult(success, hops, latency);
-        return null;
+        while(!shortestDistances.isEmpty()) {
+            List<Node> newPeers = new ArrayList<>(kadA);
+            Iterator<Node> iterator = shortestDistances.iterator();
+            while(iterator.hasNext() && newPeers.size() < kadA) {
+                // Find the next set of peers to go through
+                Node n = iterator.next();
+                if (!contacted.contains(n)){
+                    newPeers.add(n);
+                }
+            }
+            if (newPeers.isEmpty()) {
+                break;
+            }
+            for (Node peer : newPeers) {
+                contacted.add(peer);
+                hops++;
+                latency++; // Fix with real latency
+                HKademliaProtocol peerProtocol = (HKademliaProtocol) peer.getProtocol(pid);
+                if (peerProtocol.localStore.contains(contentId)) {
+                    success = true;
+                    break;
+                }
+                if (peerProtocol.contentCache.containsKey(contentId)) {
+                    success = true;
+                    break;
+                }
+                // Shortest distances from beginning peers to later
+                shortestDistances.addAll(peerProtocol.findClosestPeers(contentId, kadK));
+            }
+            if (success) {
+                break;
+            }
+        }
+
+        return new HKademliaStoreLookupSimulator.LookupResult(success, hops, latency);
+//        return null;
     }
 
     public void setClusterId(int id) {
