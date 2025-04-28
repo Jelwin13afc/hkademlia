@@ -19,6 +19,7 @@ public class HKademliaStoreLookupSimulator implements Control {
     private int successfulLookups = 0;
     private int totalLookupHops = 0;
     private long totalLatency = 0;
+    private final List<Long> storedKeys = new ArrayList<>();
 
     public HKademliaStoreLookupSimulator(String prefix) {
         this.protocolID = Configuration.getPid(prefix + ".protocol");
@@ -42,18 +43,21 @@ public class HKademliaStoreLookupSimulator implements Control {
             // Store operation
             if (operationType.equals("storelookup") || operationType.equals("store")) {
                 protocol.executeStore(Long.parseLong(contentID, 16));
+                storedKeys.add(Long.parseLong(contentID, 16));
                 totalStoreRequests++;
             }
 
             // Lookup operation
             if (operationType.equals("storelookup") || operationType.equals("lookup")) {
-                LookupResult result = protocol.executeLookup(Long.parseLong(contentID, 16));
-                totalLookupRequests++;
-
-                if (result.success) {
-                    successfulLookups++;
-                    totalLookupHops += result.hops;
-                    totalLatency += result.latency;
+                if (!storedKeys.isEmpty()) {
+                    long key = storedKeys.get(rand.nextInt(storedKeys.size()));
+                    LookupResult result = protocol.executeLookup(key);
+                    totalLookupRequests++;
+                    if (result.success) {
+                        successfulLookups++;
+                        totalLookupHops += result.hops;
+                        totalLatency += result.latency;
+                    }
                 }
             }
         }
