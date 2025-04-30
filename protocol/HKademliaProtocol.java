@@ -1,7 +1,7 @@
-// Core Logic of HKademlia, how peers interact: routing,  KBucket updates, remote vs local peer logic
 import peersim.core.*;
 import peersim.config.*;
 import java.util.*;
+
 
 public class HKademliaProtocol implements Protocol {
     private final int kadK;
@@ -20,11 +20,17 @@ public class HKademliaProtocol implements Protocol {
     private static final int DEFAULT_CACHE_SIZE = 500;
     private static final String PAR_CACHE_SIZE = "cache_size";
 
-    private LinkedHashMap<String, Object> contentCache;
-
     // Map to track content to its originating cluster
     private Map<String, Integer> contentOriginCluster;
 
+    // LFU Cache implementation
+    private LFUCache contentCache;
+
+    private int interClusterStoreMessages = 0;
+    private int intraClusterStoreMessages = 0;
+
+    private int interClusterLookupMessages = 0;
+    private int intraClusterLookupMessages = 0;
 
     public HKademliaProtocol(String prefix) {
         this.prefix = prefix;
@@ -34,24 +40,105 @@ public class HKademliaProtocol implements Protocol {
 
         this.cacheSize = Configuration.getInt(prefix + "." + PAR_CACHE_SIZE, DEFAULT_CACHE_SIZE);
 
-        // FIFO strategy for cache
-        this.contentCache = new LinkedHashMap<String, Object>(cacheSize, 0.75f, false) {
-            @Override
-            protected boolean removeEldestEntry(Map.Entry<String, Object> eldest) {
-                return size() > cacheSize;
-            }
-        };
-
-        // // LRU strategy for cache
-        // this.contentCache = new LinkedHashMap<String, Object>(cacheSize, 0.75f, true) {
+        // // FIFO strategy for cache
+        // this.contentCache = new LinkedHashMap<String, Object>(cacheSize, 0.75f, false) {
         //     @Override
         //     protected boolean removeEldestEntry(Map.Entry<String, Object> eldest) {
         //         return size() > cacheSize;
         //     }
         // };
-        
+
+        // Create LFU cache with specified size
+        this.contentCache = new LFUCache(cacheSize);
+
         // Track which cluster each content originated from
         this.contentOriginCluster = new HashMap<>();
+    }
+
+    // LFU Cache Implementation
+    private static class LFUCache {
+        private final int capacity;
+        private final HashMap<String, Object> cache; // stores the actual key-value pairs
+        private final HashMap<String, Integer> frequencies; // tracks access frequency for each key
+        private final HashMap<Integer, LinkedHashSet<String>> frequencyLists; // groups keys by frequency
+        private int minFrequency; // keeps track of the minimum frequency
+
+        public LFUCache(int capacity) {
+            this.capacity = capacity;
+            this.cache = new HashMap<>();
+            this.frequencies = new HashMap<>();
+            this.frequencyLists = new HashMap<>();
+            this.minFrequency = 0;
+        }
+
+        public Object get(String key) {
+            if (!cache.containsKey(key)) {
+                return null;
+            }
+            
+            // Update frequency
+            int oldFrequency = frequencies.get(key);
+            frequencies.put(key, oldFrequency + 1);
+            
+            // Remove key from old frequency list
+            frequencyLists.get(oldFrequency).remove(key);
+            
+            // Update minFrequency if needed
+            if (minFrequency == oldFrequency && frequencyLists.get(oldFrequency).isEmpty()) {
+                minFrequency = oldFrequency + 1;
+            }
+            
+            // Add key to new frequency list
+            frequencyLists.computeIfAbsent(oldFrequency + 1, k -> new LinkedHashSet<>()).add(key);
+            
+            return cache.get(key);
+        }
+
+        public void put(String key, Object value) {
+            if (capacity <= 0) {
+                return;
+            }
+            
+            // If key exists, update its value and frequency
+            if (cache.containsKey(key)) {
+                cache.put(key, value);
+                get(key); // update frequency
+                return;
+            }
+            
+            // If cache is full, remove least frequently used item
+            if (cache.size() >= capacity) {
+                String leastFrequentKey = frequencyLists.get(minFrequency).iterator().next();
+                frequencyLists.get(minFrequency).remove(leastFrequentKey);
+                cache.remove(leastFrequentKey);
+                frequencies.remove(leastFrequentKey);
+            }
+            
+            // Add new key with frequency 1
+            cache.put(key, value);
+            frequencies.put(key, 1);
+            minFrequency = 1;
+            frequencyLists.computeIfAbsent(1, k -> new LinkedHashSet<>()).add(key);
+        }
+
+        public boolean containsKey(String key) {
+            return cache.containsKey(key);
+        }
+
+        public void clear() {
+            cache.clear();
+            frequencies.clear();
+            frequencyLists.clear();
+            minFrequency = 0;
+        }
+
+        public int size() {
+            return cache.size();
+        }
+        
+        public Set<String> keySet() {
+            return cache.keySet();
+        }
     }
 
     // The clone() method ensures that each peer gets a new instance of your protocol class
@@ -116,6 +203,14 @@ public class HKademliaProtocol implements Protocol {
         for (Node peer : closestPeers) {
             HKademliaProtocol peerProtocol = (HKademliaProtocol) peer.getProtocol(pid);
             peerProtocol.localStore.add(contentId);
+
+            // Track inter/intra-cluster messages
+            if (peerProtocol.getClusterId() == this.getClusterId()) {
+                intraClusterStoreMessages++;
+            } else {
+                interClusterStoreMessages++;
+            }
+
             // Simulate storing content on that peer (abstract logic)
             System.out.println("Storing content " + contentId + " on peer " + peer.getID());
         }
@@ -171,11 +266,18 @@ public class HKademliaProtocol implements Protocol {
                 hops++;
                 latency++; // Fix with real latency
                 HKademliaProtocol peerProtocol = (HKademliaProtocol) peer.getProtocol(pid);
+
+                if (peerProtocol.getClusterId() == this.getClusterId()) {
+                    intraClusterLookupMessages++;
+                } else {
+                    interClusterLookupMessages++;
+                }
+                
                 if (peerProtocol.localStore.contains(contentId)) {
                     success = true;
                     break;
                 }
-                if (peerProtocol.contentCache.containsKey(contentId)) {
+                if (peerProtocol.isCached(contentIdStr)) {
                     success = true;
                     break;
                 }
@@ -282,5 +384,15 @@ public class HKademliaProtocol implements Protocol {
         return String.format("Cache size: %d/%d, Hits: %d, Misses: %d, Hit ratio: %.2f%%", 
                 contentCache.size(), cacheSize, cacheHits, cacheMisses, hitRatio * 100);
     }
+
+    public int getKBucketSize() {
+        return kbucket.size();
+    }
+
+    public int getInterStoreMessages() { return interClusterStoreMessages; }
+    public int getIntraStoreMessages() { return intraClusterStoreMessages; }
+
+    public int getInterLookupMessages() { return interClusterLookupMessages; }
+    public int getIntraLookupMessages() { return intraClusterLookupMessages; }
 
 }

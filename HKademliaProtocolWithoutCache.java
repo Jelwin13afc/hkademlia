@@ -1,9 +1,12 @@
+
+
+
 // Core Logic of HKademlia, how peers interact: routing,  KBucket updates, remote vs local peer logic
 import peersim.core.*;
 import peersim.config.*;
 import java.util.*;
 
-public class HKademliaProtocol implements Protocol {
+public class HKademliaProtocolWithoutCache implements Protocol {
     private final int kadK;
     private final int kadA;
     private int clusterID;
@@ -13,18 +16,8 @@ public class HKademliaProtocol implements Protocol {
 
     private final Set<Long> localStore = new HashSet<>();
 
-    private int cacheSize;
-    private int cacheHits = 0;
-    private int cacheMisses = 0;
-
-    private static final int DEFAULT_CACHE_SIZE = 500;
-    private static final String PAR_CACHE_SIZE = "cache_size";
-
-    private LinkedHashMap<String, Object> contentCache;
-
     // Map to track content to its originating cluster
     private Map<String, Integer> contentOriginCluster;
-
 
     public HKademliaProtocol(String prefix) {
         this.prefix = prefix;
@@ -32,24 +25,6 @@ public class HKademliaProtocol implements Protocol {
         this.kadA = Configuration.getInt(prefix + ".kadA");
         this.kbucket = new HashSet<>();
 
-        this.cacheSize = Configuration.getInt(prefix + "." + PAR_CACHE_SIZE, DEFAULT_CACHE_SIZE);
-
-        // FIFO strategy for cache
-        this.contentCache = new LinkedHashMap<String, Object>(cacheSize, 0.75f, false) {
-            @Override
-            protected boolean removeEldestEntry(Map.Entry<String, Object> eldest) {
-                return size() > cacheSize;
-            }
-        };
-
-        // // LRU strategy for cache
-        // this.contentCache = new LinkedHashMap<String, Object>(cacheSize, 0.75f, true) {
-        //     @Override
-        //     protected boolean removeEldestEntry(Map.Entry<String, Object> eldest) {
-        //         return size() > cacheSize;
-        //     }
-        // };
-        
         // Track which cluster each content originated from
         this.contentOriginCluster = new HashMap<>();
     }
@@ -108,9 +83,6 @@ public class HKademliaProtocol implements Protocol {
         // find kadk number of closest peers,contenID to store 
         List<Node> closestPeers = findClosestPeers(contentId, kadK);
 
-        // Store content in local cache first
-        storeInCache(contentIdStr, content);
-
         String protocolId = prefix.substring(prefix.lastIndexOf('.')+1);
         int pid = Configuration.lookupPid(protocolId);
         for (Node peer : closestPeers) {
@@ -124,17 +96,6 @@ public class HKademliaProtocol implements Protocol {
     public HKademliaStoreLookupSimulator.LookupResult executeLookup(long contentId) {
         // Simulate LOOKUP action based on contentId
 
-        // first check local cache
-        String contentIdStr = String.valueOf(contentId);
-        Object cachedContent = searchCache(contentIdStr);
-        if (cachedContent != null) {
-            // Cache hit - return result immediately with 0 hops
-            cacheHits++;
-            System.out.println("Cache hit for content " + contentId);
-            return new HKademliaStoreLookupSimulator.LookupResult(true, 0, 0);
-        }
-        // Not in local cache
-        cacheMisses++;
         // Next check local store
         if (localStore.contains(contentId)) {
             return new HKademliaStoreLookupSimulator.LookupResult(true, 0, 0);
@@ -172,10 +133,6 @@ public class HKademliaProtocol implements Protocol {
                 latency++; // Fix with real latency
                 HKademliaProtocol peerProtocol = (HKademliaProtocol) peer.getProtocol(pid);
                 if (peerProtocol.localStore.contains(contentId)) {
-                    success = true;
-                    break;
-                }
-                if (peerProtocol.contentCache.containsKey(contentId)) {
                     success = true;
                     break;
                 }
@@ -240,47 +197,5 @@ public class HKademliaProtocol implements Protocol {
         return contentOriginCluster.get(contentId);
     }
 
-    // store content in cache
-    public void storeInCache(String contentId, Object content){
-        contentCache.put(contentId, content);
-    }
-
-    // Search for content in local cache
-    public Object searchCache(String contentId) {
-        Object result = contentCache.get(contentId);
-        
-        // Update stats (optional)
-        if (result != null) {
-            cacheHits++;
-        } else {
-            cacheMisses++;
-        }
-        
-        return result;
-    }
-
-    //Check if content exists in cache
-    public boolean isCached(String contentId) {
-        return contentCache.containsKey(contentId);
-    }
-
-    /**
-     * Clear the entire cache
-     */
-    public void clearCache() {
-        contentCache.clear();
-    }
-
-    /**
-     * Get cache statistics
-     * @return String representation of cache stats
-     */
-    public String getCacheStats() {
-        int totalRequests = cacheHits + cacheMisses;
-        double hitRatio = totalRequests > 0 ? (double)cacheHits / totalRequests : 0;
-        
-        return String.format("Cache size: %d/%d, Hits: %d, Misses: %d, Hit ratio: %.2f%%", 
-                contentCache.size(), cacheSize, cacheHits, cacheMisses, hitRatio * 100);
-    }
-
+    
 }

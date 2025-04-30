@@ -32,6 +32,9 @@ public class HKademliaStoreLookupSimulator implements Control {
     public boolean execute() {
         int numRequests = 100; // You can make this configurable if needed
         Random rand = new Random();
+        List<Double> avgKBucketSizes = new ArrayList<>();
+        List<Double> storeRatios = new ArrayList<>();
+        List<Double> lookupRatios = new ArrayList<>();
 
         for (int i = 0; i < numRequests; i++) {
             int initiatorID = rand.nextInt(Network.size());
@@ -60,6 +63,36 @@ public class HKademliaStoreLookupSimulator implements Control {
                     }
                 }
             }
+
+            // Log average KBucket size every tick
+            if ((i + 1) % 10 == 0) {
+                int tick = (i + 1) / 10;
+                int totalPeers = Network.size();
+                int totalKBucketSize = 0;
+                int interStore = 0, intraStore = 0, interLookup = 0, intraLookup = 0;
+
+                // Aggregate kbucket size and message stats
+                for (int j = 0; j < totalPeers; j++) {
+                    Node node = Network.get(j);
+                    HKademliaProtocol proto = (HKademliaProtocol) node.getProtocol(protocolID);
+                    totalKBucketSize += proto.getKBucketSize();
+
+                    interStore += proto.getInterStoreMessages();
+                    intraStore += proto.getIntraStoreMessages();
+                    interLookup += proto.getInterLookupMessages();
+                    intraLookup += proto.getIntraLookupMessages();
+
+                }
+
+                double avgKBucketSize = (double) totalKBucketSize / totalPeers;
+                avgKBucketSizes.add(avgKBucketSize);
+                System.out.printf("Tick %d,%f\n", tick, avgKBucketSize); // CSV format: Tick,AvgKBucketSize
+
+                double storeRatio = intraStore > 0 ? (double) interStore / intraStore : 0;
+                double lookupRatio = intraLookup > 0 ? (double) interLookup / intraLookup : 0;
+                storeRatios.add(storeRatio);
+                lookupRatios.add(lookupRatio);
+            }
         }
 
         // Print evaluation results
@@ -71,6 +104,20 @@ public class HKademliaStoreLookupSimulator implements Control {
             (successfulLookups > 0 ? (double) totalLookupHops / successfulLookups : "N/A"));
         System.out.println("Average LOOKUP latency (ms): " +
             (successfulLookups > 0 ? (double) totalLatency / successfulLookups : "N/A"));
+        System.out.println("=== Average KBucket Sizes per Tick ===");
+        for (int t = 0; t < avgKBucketSizes.size(); t++) {
+            System.out.printf("Tick %d: %.2f\n", t + 1, avgKBucketSizes.get(t));
+        }
+        System.out.println("=== Store Ratios per Tick ===");
+        for (int t = 0; t < storeRatios.size(); t++) {
+            System.out.printf("Tick %d: %.2f\n", t + 1, storeRatios.get(t));
+        }
+        System.out.println("=== Lookup Ratios per Tick ===");
+        for (int t = 0; t < lookupRatios.size(); t++) {
+            System.out.printf("Tick %d: %.2f\n", t + 1, lookupRatios.get(t));
+        }
+
+
         return false;
     }
 
