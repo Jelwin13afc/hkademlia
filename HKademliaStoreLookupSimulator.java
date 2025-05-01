@@ -5,6 +5,9 @@ import peersim.cdsim.*;
 import peersim.util.*;
 
 import java.util.*;
+import java.io.PrintWriter;
+import java.io.FileNotFoundException;
+
 
 public class HKademliaStoreLookupSimulator implements Control {
 
@@ -19,7 +22,15 @@ public class HKademliaStoreLookupSimulator implements Control {
     private int successfulLookups = 0;
     private int totalLookupHops = 0;
     private long totalLatency = 0;
+    private int tickStoreRequests = 0;
+    private int tickStoreHops = 0;
+    private long tickStoreLatency = 0;
+
     private final List<Long> storedKeys = new ArrayList<>();
+
+    private final int tickSize = 15000;        
+    private final int totalRequests = 150000;  
+    private int requestCounter = 0;
 
     public HKademliaStoreLookupSimulator(String prefix) {
         this.protocolID = Configuration.getPid(prefix + ".protocol");
@@ -30,21 +41,29 @@ public class HKademliaStoreLookupSimulator implements Control {
 
     @Override
     public boolean execute() {
-        int numRequests = 100; // You can make this configurable if needed
         Random rand = new Random();
+        Set<Long> currentTickReceivers = new HashSet<>();
+        List<Double> storeHopsPerTick = new ArrayList<>();
+        List<Double> storeLatencyPerTick = new ArrayList<>();
+        List<Integer> storeReceiversPerTick = new ArrayList<>();
 
-        for (int i = 0; i < numRequests; i++) {
+        for (int i = 0; i < totalRequests; i++) {
             int initiatorID = rand.nextInt(Network.size());
             Node initiatorNode = Network.get(initiatorID);
             HKademliaProtocol protocol = (HKademliaProtocol) initiatorNode.getProtocol(protocolID);
 
-            String contentID = generateRandomKey();
+            long baseId = initiatorNode.getID();
+            String contentID = generateKeyNearNode(baseId, 8);
 
             // Store operation
             if (operationType.equals("storelookup") || operationType.equals("store")) {
-                protocol.executeStore(Long.parseLong(contentID, 16));
+                StoreResult storeResult = protocol.executeStore(Long.parseLong(contentID, 16));
                 storedKeys.add(Long.parseLong(contentID, 16));
+                currentTickReceivers.add(initiatorNode.getID());
                 totalStoreRequests++;
+                tickStoreRequests++;
+                tickStoreHops += storeResult.hops;
+                tickStoreLatency += storeResult.latency;
             }
 
             // Lookup operation
@@ -60,10 +79,59 @@ public class HKademliaStoreLookupSimulator implements Control {
                     }
                 }
             }
+
+            if (i % tickSize == 0) {
+                double avgStoreHops = tickStoreRequests > 0 ? (double) tickStoreHops / tickStoreRequests : 0;
+                double avgStoreLatency = tickStoreRequests > 0 ? (double) tickStoreLatency / tickStoreRequests : 0;
+
+                int receivers = currentTickReceivers.size();
+
+                storeHopsPerTick.add(avgStoreHops);
+                storeLatencyPerTick.add(avgStoreLatency);
+                storeReceiversPerTick.add(receivers);
+
+                // Reset tick-specific metrics
+                tickStoreRequests = 0;
+                tickStoreHops = 0;
+                tickStoreLatency = 0;
+                currentTickReceivers.clear();
+            }
         }
+
+        String filename = "store_metrics.csv";
+        try{
+            PrintWriter writer = new PrintWriter(filename);
+            writer.println("Tick,AvgStoreHops,AvgStoreLatency(ms),StoreReceivers");
+
+            for (int i = 0; i < storeHopsPerTick.size(); i++) {
+                writer.printf(
+                    "%d,%.2f,%.2f,%d\n",
+                    (i + 1),
+                    storeHopsPerTick.get(i),
+                    storeLatencyPerTick.get(i),
+                    storeReceiversPerTick.get(i)
+                );
+            }
+            writer.close();
+        } catch (Exception e) {
+            System.err.println("Failed to write CSV: " + e.getMessage());
+        }
+            
 
         // Print evaluation results
         System.out.println("=== H-Kademlia Simulation Summary ===");
+        System.out.println("\n=== H-Kademlia Store Operation Tick Metrics ===");
+        System.out.println("Tick\tAvgStoreHops\tAvgStoreLatency(ms)\tStoreReceivers");
+
+        for (int i = 0; i < storeHopsPerTick.size(); i++) {
+            System.out.printf(
+                "%d\t%.2f\t%.2f\t%d\n",
+                (i + 1),
+                storeHopsPerTick.get(i),
+                storeLatencyPerTick.get(i),
+                storeReceiversPerTick.get(i)
+            );
+        }
         System.out.println("STORE requests: " + totalStoreRequests);
         System.out.println("LOOKUP requests: " + totalLookupRequests);
         System.out.println("Successful LOOKUPs: " + successfulLookups);
@@ -74,8 +142,14 @@ public class HKademliaStoreLookupSimulator implements Control {
         return false;
     }
 
-    private String generateRandomKey() {
-        return UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+    private String generateKeyNearNode(long nodeId, int proximityBits) {
+        Random rand = new Random();
+        long mask = (1L << proximityBits) - 1; 
+        long offset = rand.nextLong() & mask;  
+        long keyLong = nodeId ^ offset;        
+
+        // Return 8-char lowercase hex string
+        return String.format("%08x", keyLong & 0xffffffffL);
     }
 
     // Placeholder result structure; implement this in your protocol
@@ -86,6 +160,16 @@ public class HKademliaStoreLookupSimulator implements Control {
 
         public LookupResult(boolean success, int hops, long latency) {
             this.success = success;
+            this.hops = hops;
+            this.latency = latency;
+        }
+    }
+
+    public static class StoreResult {
+        public int hops;
+        public long latency;
+
+        public StoreResult(int hops, long latency) {
             this.hops = hops;
             this.latency = latency;
         }

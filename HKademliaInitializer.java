@@ -37,4 +37,3 @@ public class HKademliaInitializer implements Control {
         return false;
     }
 }
-
