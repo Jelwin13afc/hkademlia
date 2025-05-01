@@ -106,6 +106,7 @@ public class HKademliaProtocol implements Protocol {
         int hops = 0;
         long latency = 0;
         boolean changed = true;
+        int receivers = 0; // Added to track actual number of receivers
 
         while (changed && !candidates.isEmpty()) {
             changed = false;
@@ -158,15 +159,18 @@ public class HKademliaProtocol implements Protocol {
             }
         }
 
-        // Store content on final kadK closest peers
+        // Store content on final kadK closest peers and count actual receivers
         for (Node node : closestNodes) {
             HKademliaProtocol proto = (HKademliaProtocol) node.getProtocol(pid);
             proto.localStore.add(contentId);
+            receivers++; // Count each successful store
         }
 
-        return new HKademliaStoreLookupSimulator.StoreResult(hops, latency);
+        // Ensure we don't exceed kadK
+        receivers = Math.min(receivers, kadK);
+        
+        return new HKademliaStoreLookupSimulator.StoreResult(hops, latency, receivers);
     }
-
 
 
     public HKademliaStoreLookupSimulator.LookupResult executeLookup(long contentId) {
