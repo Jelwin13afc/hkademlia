@@ -6,7 +6,7 @@ public class KademliaProtocol implements Protocol {
     private final int kadK;
     private final int kadA;
     private final String prefix;
-    private final Set<Node> kbucket;
+    public final Set<Node> kbucket;
     private final Set<Long> localStore;
 
     public KademliaProtocol(String prefix) {
@@ -33,9 +33,9 @@ public class KademliaProtocol implements Protocol {
 
     public KademliaStoreLookupSimulator.StoreResult executeStore(long contentId) {
         localStore.add(contentId);
-
         String protocolId = prefix.substring(prefix.lastIndexOf('.') + 1);
         int pid = Configuration.lookupPid(protocolId);
+        Node currentNode = CommonState.getNode();
 
         Set<Node> contacted = new HashSet<>();
         List<Node> closestNodes = findClosestPeers(contentId, kadK);
@@ -63,9 +63,13 @@ public class KademliaProtocol implements Protocol {
             if (alphaSet.isEmpty()) break;
             hops++;
 
-            // Standard Kademlia uses uniform latency
-            long hopLatency = 10 + (long)(Math.random() * 10); // 10-20ms
-            latency += hopLatency;
+            // Calculate max latency for this parallel hop
+            long maxHopLatency = 0;
+            for (Node node : alphaSet) {
+                long hopLatency = calculateLatency(currentNode, node);
+                maxHopLatency = Math.max(maxHopLatency, hopLatency);
+            }
+            latency += maxHopLatency;
 
             for (Node node : alphaSet) {
                 KademliaProtocol peerProto = (KademliaProtocol) node.getProtocol(pid);
@@ -91,13 +95,27 @@ public class KademliaProtocol implements Protocol {
             }
         }
 
-        for (Node node : closestNodes) {
+        // Store on closest nodes
+        for (int i = 0; i < Math.min(kadK, closestNodes.size()); i++) {
+            Node node = closestNodes.get(i);
             ((KademliaProtocol) node.getProtocol(pid)).localStore.add(contentId);
             receivers++;
         }
 
-        receivers = Math.min(receivers, kadK);
         return new KademliaStoreLookupSimulator.StoreResult(hops, latency, receivers);
+    }
+
+    private long calculateLatency(Node from, Node to) {
+        // Virtual cluster simulation (same as lookup)
+        int virtualClusters = 5;
+        long fromCluster = from.getID() % virtualClusters;
+        long toCluster = to.getID() % virtualClusters;
+
+        // Same latency model as lookup
+        long intraClusterLatency = 5 + (long)(Math.random() * 5);   // 5-10ms
+        long interClusterLatency = 20 + (long)(Math.random() * 20); // 20-40ms
+
+        return (fromCluster == toCluster) ? intraClusterLatency : interClusterLatency;
     }
 
     public KademliaStoreLookupSimulator.LookupResult executeLookup(long contentId) {
