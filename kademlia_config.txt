@@ -1,0 +1,18 @@
+network.size = 1000
+simulation.cycles = 1
+
+
+
+protocol.kademlia = KademliaProtocol
+protocol.kademlia.kadK = 20
+protocol.kademlia.kadA = 3
+
+init.kademlia = KademliaInitializer
+init.kademlia.protocol = kademlia
+
+
+control.simulator = KademliaStoreLookupSimulator
+control.simulator.protocol = kademlia
+control.simulator.type = storelookup
+control.simulator.kadK = 2
+control.simulator.kadA = 1

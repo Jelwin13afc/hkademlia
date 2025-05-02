@@ -1,18 +1,15 @@
 network.size = 1000
-simulation.cycles = 1000
+simulation.cycles = 1
 
-Protocol definition
 protocol.hkademlia = HKademliaProtocol
 protocol.hkademlia.kadK = 20
 protocol.hkademlia.kadA = 3
 protocol.hkademlia.clusterSize = 10
 
-Initializer setup
 init.hkademlia = HKademliaInitializer
 init.hkademlia.protocol = hkademlia
 protocol.hkademlia.clusters = 5
 
-Simulation controller
 control.simulator = HKademliaStoreLookupSimulator
 control.simulator.protocol = hkademlia
 control.simulator.type = storelookup
