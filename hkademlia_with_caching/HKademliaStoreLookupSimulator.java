@@ -24,6 +24,14 @@ public class HKademliaStoreLookupSimulator implements Control {
     private long tickStoreLatency = 0;
     private int tickStoreReceivers = 0;
 
+    // inter:intra
+
+    private int tickStoreInter = 0;
+    private int tickStoreIntra = 0;
+    private int tickLookupIntra = 0;
+    private int tickLookupInter = 0;
+
+
     private final List<Long> storedKeys = new ArrayList<>();
     private final Map<Long, Integer> contentReceivers = new HashMap<>();
 
@@ -43,15 +51,24 @@ public class HKademliaStoreLookupSimulator implements Control {
         List<Double> storeHopsPerTick = new ArrayList<>();
         List<Double> storeLatencyPerTick = new ArrayList<>();
         List<Integer> storeReceiversPerTick = new ArrayList<>();
+        List<Integer> bucketSizePerTick = new ArrayList<>();
+        List<Double> storeInterIntraPerTick = new ArrayList<>();
+        List<Double> lookupInterIntraPerTick = new ArrayList<>();
+        int totalKBucketSize = 0;
 
         for (int i = 0; i < totalRequests; i++) {
             int initiatorID = rand.nextInt(Network.size());
             Node initiatorNode = Network.get(initiatorID);
             HKademliaProtocol protocol = (HKademliaProtocol) initiatorNode.getProtocol(protocolID);
 
+
             long baseId = initiatorNode.getID();
             String contentID = generateKeyNearNode(baseId, 8);
             long contentKey = Long.parseLong(contentID, 16);
+
+            int bucketSize = protocol.getKBucketSize();
+            // System.out.println("Bucket size: " + bucketSize);
+            totalKBucketSize += bucketSize;
 
             // Store operation
             if (operationType.equals("storelookup") || operationType.equals("store")) {
@@ -67,6 +84,8 @@ public class HKademliaStoreLookupSimulator implements Control {
                 tickStoreHops += storeResult.hops;
                 tickStoreLatency += storeResult.latency;
                 tickStoreReceivers += storeResult.actualReceivers;
+                tickStoreInter += storeResult.localInterMessages;
+                tickStoreIntra += storeResult.localIntraMessages;
             }
 
             // Lookup operation
@@ -79,6 +98,8 @@ public class HKademliaStoreLookupSimulator implements Control {
                         successfulLookups++;
                         totalLookupHops += result.hops;
                         totalLatency += result.latency;
+                        tickLookupIntra += result.lookupIntraMessages;
+                        tickLookupInter += result.lookupInterMessages;
                     }
                 }
             }
@@ -95,20 +116,38 @@ public class HKademliaStoreLookupSimulator implements Control {
                 storeHopsPerTick.add(avgStoreHops);
                 storeLatencyPerTick.add(avgStoreLatency);
                 storeReceiversPerTick.add((int) Math.round(avgReceivers));
+                bucketSizePerTick.add(totalKBucketSize);
+                storeInterIntraPerTick.add((double)tickStoreInter/tickStoreIntra);
+                lookupInterIntraPerTick.add((double)tickLookupInter/tickLookupIntra);
+
 
                 // Reset tick counters
                 tickStoreRequests = 0;
                 tickStoreHops = 0;
                 tickStoreLatency = 0;
                 tickStoreReceivers = 0;
+
+                System.out.println(totalKBucketSize);
+                System.out.println((double)tickStoreInter/tickStoreIntra);
+                System.out.printf("Store Inter/Intra: %d/%d%n", tickStoreInter, tickStoreIntra);
+                System.out.println((double)tickLookupInter/tickLookupIntra);
+                System.out.printf("Lookup Inter/Intra: %d/%d%n", tickLookupInter, tickLookupIntra);
+                
             }
         }
 
         // Write metrics to CSV
         writeMetricsToCSV(storeHopsPerTick, storeLatencyPerTick, storeReceiversPerTick);
+        writeMetricToCSV(bucketSizePerTick, storeInterIntraPerTick, lookupInterIntraPerTick);
         
         // Print summary
         printSummary(storeHopsPerTick, storeLatencyPerTick, storeReceiversPerTick);
+
+        System.out.println(totalKBucketSize);
+        System.out.println((double)tickStoreInter/tickStoreIntra);
+        System.out.printf("Store Inter/Intra: %d/%d%n", tickStoreInter, tickStoreIntra);
+        System.out.println((double)tickLookupInter/tickLookupIntra);
+        System.out.printf("Lookup Inter/Intra: %d/%d%n", tickLookupInter, tickLookupIntra);
         
         return false;
     }
@@ -119,6 +158,19 @@ public class HKademliaStoreLookupSimulator implements Control {
             writer.println("Tick,AvgStoreHops,AvgStoreLatency(ms),StoreReceivers");
             for (int i = 0; i < hops.size(); i++) {
                 writer.printf("%d,%.2f,%.2f,%d%n",
+                    i+1, hops.get(i), latency.get(i), receivers.get(i));
+            }
+        } catch (FileNotFoundException e) {
+            System.err.println("Failed to write CSV: " + e.getMessage());
+        }
+    }
+
+    private void writeMetricToCSV(List<Integer> hops, List<Double> latency, List<Double> receivers) {
+        String filename = "cluster_metrics_hkademlia_with_caching.csv";
+        try (PrintWriter writer = new PrintWriter(filename)) {
+            writer.println("Tick,KBucket Size,InterToIntraCluster Ratio - Store,InterToIntraCluster Ratio - Lookup");
+            for (int i = 0; i < hops.size(); i++) {
+                writer.printf("%d,%d,%.4f,%f%n",
                     i+1, hops.get(i), latency.get(i), receivers.get(i));
             }
         } catch (FileNotFoundException e) {
@@ -157,11 +209,15 @@ public class HKademliaStoreLookupSimulator implements Control {
         public final boolean success;
         public final int hops;
         public final long latency;
+        public final int lookupInterMessages;
+        public final int lookupIntraMessages;
 
-        public LookupResult(boolean success, int hops, long latency) {
+        public LookupResult(boolean success, int hops, long latency, int lookupInterMessages, int lookupIntraMessages) {
             this.success = success;
             this.hops = hops;
             this.latency = latency;
+            this.lookupInterMessages = lookupInterMessages;
+            this.lookupIntraMessages = lookupIntraMessages;
         }
     }
 
@@ -169,11 +225,16 @@ public class HKademliaStoreLookupSimulator implements Control {
         public final int hops;
         public final long latency;
         public final int actualReceivers;
+        public final int localIntraMessages;
+        public final int localInterMessages;
 
-        public StoreResult(int hops, long latency, int actualReceivers) {
+
+        public StoreResult(int hops, long latency, int actualReceivers, int localIntraMessages, int localInterMessages) {
             this.hops = hops;
             this.latency = latency;
             this.actualReceivers = actualReceivers;
+            this.localIntraMessages = localIntraMessages;
+            this.localInterMessages = localInterMessages;
         }
     }
 }
