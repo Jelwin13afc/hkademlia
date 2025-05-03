@@ -65,7 +65,7 @@ public class KademliaStoreLookupSimulator implements Control {
 
 
             long baseId = initiatorNode.getID();
-            String contentID = generateKeyNearNode(baseId, 14);
+            String contentID = generateKeyNearNode(baseId, 12);
             long contentKey = Long.parseLong(contentID, 16);
 
             int bucketSize = protocol.getKBucketSize();
