@@ -12,6 +12,15 @@ public class KademliaProtocol implements Protocol {
 
     private final Set<Long> localStore = new HashSet<>();
 
+    private int cacheSize;
+    private int cacheHits = 0;
+    private int cacheMisses = 0;
+
+    private static final int DEFAULT_CACHE_SIZE = 500;
+    private static final String PAR_CACHE_SIZE = "cache_size";
+
+    private LinkedHashMap<String, Object> contentCache;
+
     // Map to track content to its originating cluster (for metrics only)
     private Map<String, Integer> contentOriginCluster;
     private int clusterID; // Needed for consistent metric calculation
@@ -27,6 +36,15 @@ public class KademliaProtocol implements Protocol {
         this.kadA = Configuration.getInt(prefix + ".kadA");
         this.kbucket = new HashSet<>();
 
+        this.cacheSize = Configuration.getInt(prefix + "." + PAR_CACHE_SIZE, DEFAULT_CACHE_SIZE);
+
+        // FIFO strategy for cache
+        this.contentCache = new LinkedHashMap<String, Object>(cacheSize, 0.75f, false) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, Object> eldest) {
+                return size() > cacheSize;
+            }
+        };
 
         // Track which cluster each content originated from (for metrics)
         this.contentOriginCluster = new HashMap<>();
@@ -61,7 +79,7 @@ public class KademliaProtocol implements Protocol {
     public KademliaStoreLookupSimulator.StoreResult executeStore(long contentId) {
         String contentIdStr = String.valueOf(contentId);
         localStore.add(contentId);
-        // storeInCache(contentIdStr, "Content-" + contentIdStr);
+        storeInCache(contentIdStr, "Content-" + contentIdStr);
 
         String protocolId = prefix.substring(prefix.lastIndexOf('.') + 1);
         int pid = Configuration.lookupPid(protocolId);
@@ -166,10 +184,19 @@ public class KademliaProtocol implements Protocol {
         return new KademliaStoreLookupSimulator.StoreResult(hops, latency, receivers, localIntraMessages, localInterMessages);
     }
 
-
     public KademliaStoreLookupSimulator.LookupResult executeLookup(long contentId) {
         // Simulate LOOKUP action based on contentId
 
+        // first check local cache
+        String contentIdStr = String.valueOf(contentId);
+        Object cachedContent = searchCache(contentIdStr);
+        if (cachedContent != null) {
+            // Cache hit - return result immediately with 0 hops
+            cacheHits++;
+            return new KademliaStoreLookupSimulator.LookupResult(true, 0, 0, 0, 0);
+        }
+        // Not in local cache
+        cacheMisses++;
         // Next check local store
         if (localStore.contains(contentId)) {
             return new KademliaStoreLookupSimulator.LookupResult(true, 0, 0, 0, 1);
@@ -217,14 +244,14 @@ public class KademliaProtocol implements Protocol {
                     lookupInterMessages++;
                 }
 
-                // if (peerProtocol.localStore.contains(contentId)) {
-                //     success = true;
-                //     break;
-                // }
-                // if (peerProtocol.contentCache.containsKey(contentId)) {
-                //     success = true;
-                //     break;
-                // }
+                if (peerProtocol.localStore.contains(contentId)) {
+                    success = true;
+                    break;
+                }
+                if (peerProtocol.contentCache.containsKey(contentId)) {
+                    success = true;
+                    break;
+                }
                 // Shortest distances from beginning peers to later
                 shortestDistances.addAll(peerProtocol.findClosestPeers(contentId, kadK));
             }
@@ -286,9 +313,48 @@ public class KademliaProtocol implements Protocol {
         return contentOriginCluster.get(contentId);
     }
 
-    
+    // store content in cache
+    public void storeInCache(String contentId, Object content){
+        contentCache.put(contentId, content);
+    }
 
-    
+    // Search for content in local cache
+    public Object searchCache(String contentId) {
+        Object result = contentCache.get(contentId);
+
+        // Update stats (optional)
+        if (result != null) {
+            cacheHits++;
+        } else {
+            cacheMisses++;
+        }
+
+        return result;
+    }
+
+    //Check if content exists in cache
+    public boolean isCached(String contentId) {
+        return contentCache.containsKey(contentId);
+    }
+
+    /**
+     * Clear the entire cache
+     */
+    public void clearCache() {
+        contentCache.clear();
+    }
+
+    /**
+     * Get cache statistics
+     * @return String representation of cache stats
+     */
+    public String getCacheStats() {
+        int totalRequests = cacheHits + cacheMisses;
+        double hitRatio = totalRequests > 0 ? (double)cacheHits / totalRequests : 0;
+
+        return String.format("Cache size: %d/%d, Hits: %d, Misses: %d, Hit ratio: %.2f%%",
+                contentCache.size(), cacheSize, cacheHits, cacheMisses, hitRatio * 100);
+    }
 
     public int getKBucketSize() {
         return kbucket.size();
