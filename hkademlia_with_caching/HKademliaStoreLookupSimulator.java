@@ -212,7 +212,7 @@ public class HKademliaStoreLookupSimulator implements Control {
         public final int lookupInterMessages;
         public final int lookupIntraMessages;
 
-        public LookupResult(boolean success, int hops, long latency, int lookupInterMessages, int lookupIntraMessages) {
+        public LookupResult(boolean success, int hops, long latency, int lookupIntraMessages, int lookupInterMessages) {
             this.success = success;
             this.hops = hops;
             this.latency = latency;
