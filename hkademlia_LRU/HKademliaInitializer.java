@@ -2,6 +2,8 @@
 // Initializes their K-Buckets
 // Optionally assigns peer IDs, populates lookup indices, etc.
 
+// init 50% of bucket
+
 import peersim.core.*;
 
 import java.util.ArrayList;

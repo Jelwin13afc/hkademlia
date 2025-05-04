@@ -8,7 +8,7 @@ protocol.hkademlia.clusterSize = 10
 
 init.hkademlia = HKademliaInitializer
 init.hkademlia.protocol = hkademlia
-protocol.hkademlia.clusters = 5
+protocol.hkademlia.clusters = 4
 
 control.simulator = HKademliaStoreLookupSimulator
 control.simulator.protocol = hkademlia

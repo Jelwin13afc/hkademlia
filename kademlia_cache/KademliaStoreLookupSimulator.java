@@ -1,3 +1,5 @@
+
+
 import peersim.config.*;
 import peersim.core.*;
 import peersim.edsim.*;
@@ -5,7 +7,7 @@ import peersim.util.*;
 import java.util.*;
 import java.io.*;
 
-public class HKademliaStoreLookupSimulator implements Control {
+public class KademliaStoreLookupSimulator implements Control {
     private final int protocolID;
     private final int kadK;
     private final int kadA;
@@ -24,10 +26,13 @@ public class HKademliaStoreLookupSimulator implements Control {
     private long tickStoreLatency = 0;
     private int tickStoreReceivers = 0;
 
+    // inter:intra
+
     private int tickStoreInter = 0;
     private int tickStoreIntra = 0;
     private int tickLookupIntra = 0;
     private int tickLookupInter = 0;
+
 
     private final List<Long> storedKeys = new ArrayList<>();
     private final Map<Long, Integer> contentReceivers = new HashMap<>();
@@ -35,7 +40,7 @@ public class HKademliaStoreLookupSimulator implements Control {
     private final int tickSize = 15000;
     private final int totalRequests = 150000;
 
-    public HKademliaStoreLookupSimulator(String prefix) {
+    public KademliaStoreLookupSimulator(String prefix) {
         this.protocolID = Configuration.getPid(prefix + ".protocol");
         this.kadK = Configuration.getInt(prefix + ".kadK", 20); // Default to IPFS standard
         this.kadA = Configuration.getInt(prefix + ".kadA", 3);  // Default to IPFS standard
@@ -56,10 +61,11 @@ public class HKademliaStoreLookupSimulator implements Control {
         for (int i = 0; i < totalRequests; i++) {
             int initiatorID = rand.nextInt(Network.size());
             Node initiatorNode = Network.get(initiatorID);
-            HKademliaProtocol protocol = (HKademliaProtocol) initiatorNode.getProtocol(protocolID);
+            KademliaProtocol protocol = (KademliaProtocol) initiatorNode.getProtocol(protocolID);
+
 
             long baseId = initiatorNode.getID();
-            String contentID = generateKeyNearNode(baseId, 8);
+            String contentID = generateKeyNearNode(baseId, 12);
             long contentKey = Long.parseLong(contentID, 16);
 
             int bucketSize = protocol.getKBucketSize();
@@ -116,6 +122,7 @@ public class HKademliaStoreLookupSimulator implements Control {
                 storeInterIntraPerTick.add((double)tickStoreInter/tickStoreIntra);
                 lookupInterIntraPerTick.add((double)tickLookupInter/tickLookupIntra);
 
+
                 // Reset tick counters
                 tickStoreRequests = 0;
                 tickStoreHops = 0;
@@ -127,6 +134,7 @@ public class HKademliaStoreLookupSimulator implements Control {
                 System.out.printf("Store Inter/Intra: %d/%d%n", tickStoreInter, tickStoreIntra);
                 System.out.println((double)tickLookupInter/tickLookupIntra);
                 System.out.printf("Lookup Inter/Intra: %d/%d%n", tickLookupInter, tickLookupIntra);
+                
             }
         }
 
@@ -136,12 +144,18 @@ public class HKademliaStoreLookupSimulator implements Control {
         
         // Print summary
         printSummary(storeHopsPerTick, storeLatencyPerTick, storeReceiversPerTick);
+
+        System.out.println(totalKBucketSize);
+        System.out.println((double)tickStoreInter/tickStoreIntra);
+        System.out.printf("Store Inter/Intra: %d/%d%n", tickStoreInter, tickStoreIntra);
+        System.out.println((double)tickLookupInter/tickLookupIntra);
+        System.out.printf("Lookup Inter/Intra: %d/%d%n", tickLookupInter, tickLookupIntra);
         
         return false;
     }
 
     private void writeMetricsToCSV(List<Double> hops, List<Double> latency, List<Integer> receivers) {
-        String filename = "store_metrics_hkademlia.csv";
+        String filename = "store_metrics_ademlia_with_caching.csv";
         try (PrintWriter writer = new PrintWriter(filename)) {
             writer.println("Tick,AvgStoreHops,AvgStoreLatency(ms),StoreReceivers");
             for (int i = 0; i < hops.size(); i++) {
@@ -154,7 +168,7 @@ public class HKademliaStoreLookupSimulator implements Control {
     }
 
     private void writeMetricToCSV(List<Integer> hops, List<Double> latency, List<Double> receivers) {
-        String filename = "cluster_metrics_hkademlia_without_cache.csv";
+        String filename = "cluster_metrics_kademlia_with_caching.csv";
         try (PrintWriter writer = new PrintWriter(filename)) {
             writer.println("Tick,KBucket Size,InterToIntraCluster Ratio - Store,InterToIntraCluster Ratio - Lookup");
             for (int i = 0; i < hops.size(); i++) {
@@ -166,9 +180,11 @@ public class HKademliaStoreLookupSimulator implements Control {
         }
     }
 
+    
+
     private void printSummary(List<Double> hops, List<Double> latency, List<Integer> receivers) {
-        System.out.println("=== H-Kademlia Simulation Summary ===");
-        System.out.println("\n=== H-Kademlia Store Operation Tick Metrics ===");
+        System.out.println("=== Kademlia Simulation Summary ===");
+        System.out.println("\n=== Kademlia Store Operation Tick Metrics ===");
         System.out.println("Tick\tAvgStoreHops\tAvgStoreLatency(ms)\tStoreReceivers");
         
         for (int i = 0; i < hops.size(); i++) {
@@ -208,6 +224,7 @@ public class HKademliaStoreLookupSimulator implements Control {
             this.lookupIntraMessages = lookupIntraMessages;
         }
     }
+
 
     public static class StoreResult {
         public final int hops;
