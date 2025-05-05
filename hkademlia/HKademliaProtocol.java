@@ -15,6 +15,11 @@ public class HKademliaProtocol implements Protocol {
 
     private final Map<String, Integer> contentOriginCluster;
 
+    private int intraClusterStore = 0;
+    private int interClusterStore = 0;
+    private int intraClusterLookup = 0;
+    private int interClusterLookup = 0;
+
     public HKademliaProtocol(String prefix) {
         this.prefix = prefix;
         this.kadK = Configuration.getInt(prefix + ".kadK");
@@ -72,6 +77,11 @@ public class HKademliaProtocol implements Protocol {
         boolean changed = true;
         int receivers = 0;
 
+        int localIntraMessages = 0;
+        int localInterMessages = 0;
+
+        int sourceClusterId = this.getClusterId();
+
         while (changed && !candidates.isEmpty()) {
             changed = false;
             List<Node> alphaSet = new ArrayList<>();
@@ -95,6 +105,7 @@ public class HKademliaProtocol implements Protocol {
 
             for (Node node : alphaSet) {
                 HKademliaProtocol peerProto = (HKademliaProtocol) node.getProtocol(pid);
+                Node selfNode = getSelfNode(pid);
                 List<Node> neighbors = peerProto.findClosestPeers(contentId, kadK);
                 for (Node neighbor : neighbors) {
                     if (!contacted.contains(neighbor)) {
@@ -105,6 +116,7 @@ public class HKademliaProtocol implements Protocol {
                     if (!closestNodes.contains(n)) {
                         closestNodes.add(n);
                         changed = true;
+                        // this.addPeer(selfNode, n);
                     }
                 }
                 closestNodes.sort(Comparator.comparingLong(n -> xorDistance(n.getID(), contentId)));
@@ -115,17 +127,30 @@ public class HKademliaProtocol implements Protocol {
         }
 
         for (Node node : closestNodes) {
-            ((HKademliaProtocol) node.getProtocol(pid)).localStore.add(contentId);
+            HKademliaProtocol proto = (HKademliaProtocol) node.getProtocol(pid);
+            
+            if(proto.getClusterId() == sourceClusterId) {
+                localIntraMessages++;
+            } else {
+                localInterMessages++;
+            }
+
+            proto.localStore.add(contentId);
             receivers++;
         }
 
         receivers = Math.min(receivers, kadK);
-        return new HKademliaStoreLookupSimulator.StoreResult(hops, latency, receivers);
+
+        this.intraClusterStore += localIntraMessages;
+        this.interClusterStore += localInterMessages;
+        return new HKademliaStoreLookupSimulator.StoreResult(hops, latency, receivers, localIntraMessages, localInterMessages);
     }
 
     public HKademliaStoreLookupSimulator.LookupResult executeLookup(long contentId) {
+        int lookupInterMessages = 0;
+        int lookupIntraMessages = 0;
         if (localStore.contains(contentId)) {
-            return new HKademliaStoreLookupSimulator.LookupResult(true, 0, 0);
+            return new HKademliaStoreLookupSimulator.LookupResult(true, 0, 0, 0, 1);
         }
 
         Set<Node> contacted = new HashSet<>();
@@ -137,6 +162,9 @@ public class HKademliaProtocol implements Protocol {
         boolean success = false;
         String protocolId = prefix.substring(prefix.lastIndexOf('.') + 1);
         int pid = Configuration.lookupPid(protocolId);
+        
+
+        int sourceClusterId = this.getClusterId();
 
         while (!shortestDistances.isEmpty()) {
             List<Node> newPeers = new ArrayList<>(kadA);
@@ -155,6 +183,11 @@ public class HKademliaProtocol implements Protocol {
                 latency++;
 
                 HKademliaProtocol peerProtocol = (HKademliaProtocol) peer.getProtocol(pid);
+                if (peerProtocol.getClusterId() == sourceClusterId) {
+                    lookupIntraMessages++;
+                } else {
+                    lookupInterMessages++;
+                }
                 if (peerProtocol.localStore.contains(contentId)) {
                     success = true;
                     break;
@@ -164,7 +197,10 @@ public class HKademliaProtocol implements Protocol {
             if (success) break;
         }
 
-        return new HKademliaStoreLookupSimulator.LookupResult(success, hops, latency);
+        this.intraClusterLookup += lookupIntraMessages;
+        this.interClusterLookup += lookupInterMessages;
+
+        return new HKademliaStoreLookupSimulator.LookupResult(success, hops, latency, lookupIntraMessages, lookupInterMessages);
     }
 
     public void setClusterId(int id) {
@@ -222,5 +258,37 @@ public class HKademliaProtocol implements Protocol {
 
     public Integer getContentOriginCluster(String contentId) {
         return contentOriginCluster.get(contentId);
+    }
+
+    public int getKadK() {
+        // Return the configured k-bucket size
+        return this.kadK;
+    }
+
+    public int getKBucketSize() {
+        return kbucket.size();
+    }
+
+    public int getIntraClusterStore() {
+        return intraClusterStore;
+    }
+    public int getInterClusterStore() {
+        return interClusterStore;
+    }
+    public int getIntraClusterLookup() {
+        return intraClusterLookup;
+    }
+    public int getInterClusterLookup() {
+        return interClusterLookup;
+    }
+
+    private Node getSelfNode(int pid) {
+        for (int i = 0; i < Network.size(); i++) {
+            Node node = Network.get(i);
+            if (node.getProtocol(pid) == this) {
+                return node;
+            }
+        }
+        return null;
     }
 }
